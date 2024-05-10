@@ -9,14 +9,22 @@ import matplotlib.pyplot as plt
 TEST_DATASET_DIR = str(pathlib.Path(__file__).parent.resolve())
 
 # Dataset names and brief descriptions
-TEST_DATASETS = {'wireframe_cube_1':'Simple wireframe cube with small noise.',
-                 'wireframe_cube_2':'Wireframe cube with small noise rotated 45 degrees on one axis.',
-                 'wireframe_cube_3':'Wireframe cube with small noise rotated 10 degrees on one axis.',
-                 'wireframe_cube_4':'Wireframe cube with small noise rotated 45 degrees on two axes.',
-                 'double_wireframe_cube_1':'Small wireframe cube inscribed in a large one.',
-                 'double_wireframe_cube_2':'Medium wireframe cube inscribed in a slightly larger one.',
-                 'simple_tree':'A basic tree scan from MarcSchotman/skeletons-from-poincloud.',
-                }
+TEST_DATASETS_2D = {
+                    '2d_curve_1':'Two dimensional high frequnecy periodic-looking wave drawn with a mouse.',
+                    '2d_curve_2':'Two dimensional low frequency periodic-looking wave drawn with a mouse.',
+                   }
+
+TEST_DATASETS_3D = {
+                    'wireframe_cube_1':'Simple wireframe cube with small noise.',
+                    'wireframe_cube_2':'Wireframe cube with small noise rotated 45 degrees on one axis.',
+                    'wireframe_cube_3':'Wireframe cube with small noise rotated 10 degrees on one axis.',
+                    'wireframe_cube_4':'Wireframe cube with small noise rotated 45 degrees on two axes.',
+                    'double_wireframe_cube_1':'Small wireframe cube inscribed in a large one.',
+                    'double_wireframe_cube_2':'Medium wireframe cube inscribed in a slightly larger one.',
+                    'simple_tree':'A basic tree scan from MarcSchotman/skeletons-from-poincloud.',
+                   }
+
+TEST_DATASETS_ALL = TEST_DATASETS_2D | TEST_DATASETS_3D
 
 def loadTestDataset(name, downsample=False, randomOrder=False, extraNoise=False):
     """
@@ -43,7 +51,7 @@ def loadTestDataset(name, downsample=False, randomOrder=False, extraNoise=False)
         Any value over approx. `0.25` will result in very
         little information being left from the original data.
     """
-    assert name in TEST_DATASETS.keys(), f'Dataset \'{name}\' not recognized; see \'printTestDatasets()\' for available options.'
+    assert name in TEST_DATASETS_ALL.keys(), f'Dataset \'{name}\' not recognized; see \'printTestDatasets()\' for available options.'
 
     if not downsample:
         dsFactor = 1
@@ -76,22 +84,39 @@ def printTestDatasets():
     print('**Available datasets**')
     print(f'Data location: {TEST_DATASET_DIR}\n')
 
-    maxNameLength = np.max([len(k) for k in TEST_DATASETS.keys()])
-    for k,v in TEST_DATASETS.items():
+    maxNameLength = np.max([len(k) for k in TEST_DATASETS_ALL.keys()])
+    print('2D Datasets:')
+    for k,v in TEST_DATASETS_2D.items():
+        print(f'{k}{"."*(maxNameLength+5-len(k))}{v}')
+
+    print('\n3D Datasets:')
+    for k,v in TEST_DATASETS_3D.items():
         print(f'{k}{"."*(maxNameLength+5-len(k))}{v}')
 
 def plotTestDatasets():
     """
     Show scatter plots of all of the available test datasets.
     """
-    datasetNames = list(TEST_DATASETS.keys()) 
-    fig = plt.figure(figsize=(len(datasetNames)*3, 4))
+    datasetNames2D = list(TEST_DATASETS_2D.keys()) 
+    fig = plt.figure(figsize=(len(datasetNames2D)*3, 4))
 
-    for i in range(len(datasetNames)):
-        ax = fig.add_subplot(1, len(datasetNames), i+1, projection='3d')
-        points = loadTestDataset(datasetNames[i])
+    for i in range(len(datasetNames2D)):
+        ax = fig.add_subplot(1, len(datasetNames2D), i+1)
+        points = loadTestDataset(datasetNames2D[i])
         ax.scatter(*points.T)
-        ax.set_title(f'{datasetNames[i]}\nPoints: {len(points)}')
+        ax.set_title(f'{datasetNames2D[i]}\nPoints: {len(points)}')
+
+    fig.tight_layout()
+    plt.show()
+
+    datasetNames3D = list(TEST_DATASETS_3D.keys()) 
+    fig = plt.figure(figsize=(len(datasetNames3D)*3, 4))
+
+    for i in range(len(datasetNames3D)):
+        ax = fig.add_subplot(1, len(datasetNames3D), i+1, projection='3d')
+        points = loadTestDataset(datasetNames3D[i])
+        ax.scatter(*points.T)
+        ax.set_title(f'{datasetNames3D[i]}\nPoints: {len(points)}')
     
     fig.tight_layout()
     plt.show()

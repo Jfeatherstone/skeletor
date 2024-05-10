@@ -1,3 +1,9 @@
+r"""
+Pretty sure `ask` stands for Adaptive SKeltre... but not totally sure.
+
+Also pretty sure this is my attempt to improve skeltre, but it has been
+a while...
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 

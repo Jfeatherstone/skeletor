@@ -87,7 +87,7 @@ def partitionIntoBoxes(points, nBoxes, cubes=False, returnIndices=False):
     return boxSize, linearBoxIdentities
 
 
-def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, kernel='gaussian', kernelSize=5, subsample=None, returnSpacing=False):
+def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, kernel='gaussian', kernelSize=5, subsample=None, returnSpacing=False, returnCorner=False):
     """
     Course grains a collection of values at arbitrary points,
     into a discrete field.
@@ -133,6 +133,10 @@ def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, k
     kernelSize : int
         The kernel size to use if `kernel='gaussian'`.
         If a custom kernel is provided, this has no effect.
+
+    returnSpacing : bool
+
+    returnCorner : bool
     """
 
     # Calculate the bounds of the volume enclosing all of the data
@@ -207,11 +211,107 @@ def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, k
     if k == 1:
         convolution = convolution[..., 0]
     
+    returnResult = [convolution]
+
     if returnSpacing:
-        return convolution, spacing
+        returnResult += [spacing]
 
-    return convolution
+    if returnCorner:
+        returnResult += [occupiedVolumeBounds[:,0]]
 
+    return returnResult if len(returnResult) > 1 else convolution
+
+
+def pathIntegralAlongField(field, path, latticeSpacing=1, fieldOffset=None, debug=False):
+    """
+    Computes the path integral along a scalar discretized field in any
+    dimension.
+
+    Uses linear interpolation along the path, so works the best for smoothly-
+    varying fields.
+
+    Does not interpolate the steps along the path, so the input path steps
+    should be appropriately broken up.
+
+    Make sure that all of the quantities passed to this method use the same
+    ordering of dimensions! For example, if you are integrating across an
+    image, these often use y-x convention, whereas you may be tempted to
+    put your path information in x-y format.
+    
+    Parameters
+    ----------
+    field : numpy.ndarray[N,M,...]
+        Field over which to compute the path integral.
+
+    path : numpy.ndarray[L,d]
+        L ordered points representing a path
+        through the field.
+
+    latticeSpacing : float, or numpy.ndarray[d]
+        The lattice spacing for the discretized field;
+        can be a single value for all dimensions, or different
+        values for each dimension.
+
+    fieldOffset : numpy.ndarray[d] or None
+        The position of the bottom left corner
+        of the discrete lattice on which the field exists.
+
+    debug : bool
+        Whether to plot diagnostic information about the field
+        and path. Only works if field is two dimensional.
+
+    Returns
+    -------
+    result : float
+    """
+    # Scale the path to have no units
+    scaledPath = path.astype(np.float64)
+    
+    if fieldOffset is not None:
+        scaledPath -= fieldOffset
+    
+    scaledPath /= latticeSpacing
+
+    # Generate the lattice positions that our field is defined on
+    axes = [np.arange(d) for d in np.shape(field)]
+    points = np.array(np.meshgrid(*axes, indexing='ij')).T
+    points = points.reshape(np.product(points.shape[:-1]), points.shape[-1])
+    
+    # Generate a kdtree of our lattice points to detect the closest ones for
+    # interpolation
+    kdTree = KDTree(points)
+    # Search for points within the distance of 1 lattice spacing
+    # This guarantees that you won't interpolate from points that
+    # conflict with each other.
+    interpolationPoints = kdTree.query_ball_point(scaledPath, 1+1e-5)
+    fieldValuesAlongPath = np.zeros(len(scaledPath))
+    
+    for i in range(len(scaledPath)):
+        localPoints = interpolationPoints[i]
+        # Compute distances to each nearby point
+        localDistances = [np.sqrt(np.sum((scaledPath[i] - points[j])**2)) for j in localPoints]
+        interpolationContributions = localDistances / np.sum(localDistances)
+        fieldValuesAlongPath[i] = np.sum(interpolationContributions * np.array([field[tuple(l)] for l in points[localPoints]]))
+
+    # We need to weigh our numerical integration by the step size
+    # We just to do a centered step scheme. ie. the interpolated value computed
+    # above for point i "counts" for half of the path approaching point i, and
+    # half of the path leaving point i. Thus, the first and last point are weighed
+    # only half, since they don't have an incoming or outgoing path each.
+    # We also have to scale back to the original lattice spacing.
+    pathSpacings = np.sqrt(np.sum(((scaledPath[1:] - scaledPath[:-1])/latticeSpacing)**2, axis=-1))
+    symSpacing = (pathSpacings[:-1] + pathSpacings[1:])/2
+    symSpacing = np.concatenate(([pathSpacings[0]/2], symSpacing, [pathSpacings[-1]/2]))
+
+    pathIntegral = np.sum(symSpacing*fieldValuesAlongPath)
+    
+    if debug and points.shape[-1] == 2:
+        plt.imshow(field) # imshow reverses reads y,x, while the other two do x,y
+        plt.scatter(*points.T[::-1], s=1, c='white')
+        plt.plot(*scaledPath.T[::-1], '-o', c='red', markersize=2)
+        plt.show()
+    
+    return pathIntegral
 
 def calculateAdjacencyMatrix(points, neighborDistance):
     """
@@ -296,6 +396,7 @@ def angularHistogramAroundPoint(points, index=None, adjMat=None, smoothing=21, h
         Values of phi angle for histogram axis.
 
     """
+    # TODO: Make this work in arbitrary dimension
     if not hasattr(adjMat, '__iter__'):
         # Ones matrix (minus diagonals) such that every points except
         # the point itself is considered a neighbor.
@@ -330,15 +431,25 @@ def angularHistogramAroundPoint(points, index=None, adjMat=None, smoothing=21, h
     phiArr = phi[goodIndices]
 
     # Now turn into a 2D histogram
-    hist, thetaBins, phiBins = np.histogram2d(thetaArr, phiArr, bins=histBins)
+    # This is equivalent to course graining, and I already happen to have a
+    # method for that for arbitrary dimension, so yay :D
+    # Also note that I used to have variable bins for theta and phi just around
+    # this data, but that means that the amount of smoothing applied is dependent
+    # on the spread of the data, making choosing a single parameter value difficult.
+    # Instead, now I use the full range for all angles, which guarantees that
+    # a smoothing kernel of eg. 5 means the same thing for any set of points.
+    #hist, thetaBins, phiBins = np.histogram2d(thetaArr, phiArr, bins=histBins)
 
-    if not smoothing is None and smoothing > 0:
-        # `smoothing` is the kernel size
-        singleAxis = np.arange(smoothing)
-        kernelGrid = np.meshgrid(singleAxis, singleAxis)
-        kernel = np.exp(-np.sum([(kernelGrid[i] - (smoothing-1)/2.)**2 for i in range(2)], axis=0) / (2*smoothing))
+    #if not smoothing is None and smoothing > 0:
+    #    # `smoothing` is the kernel size
+    #    singleAxis = np.arange(smoothing)
+    #    kernelGrid = np.meshgrid(singleAxis, singleAxis)
+    #    kernel = np.exp(-np.sum([(kernelGrid[i] - (smoothing-1)/2.)**2 for i in range(2)], axis=0) / (2*smoothing))
+#
+#        hist = convolve(hist, kernel, mode='same') / np.sum(kernel)
 
-        hist = convolve(hist, kernel, mode='same') / np.sum(kernel)
+    latticeSpacing = 
+    hist = courseGrainField()
 
     return hist, thetaBins, phiBins
 

@@ -1,6 +1,6 @@
 import numpy as np
-from skeletor.spatial import partitionIntoBoxes, angularHistogramAroundPoint, findDominantHistogramDirections
-from skeletor.graph import detectConnectedStructures
+from skeletor.utils import partitionIntoBoxes, angularHistogramAroundPoint, findDominantHistogramDirections
+from skeletor.utils import detectConnectedStructures
 
 from scipy.spatial import KDTree
 
@@ -50,7 +50,7 @@ def calculateSquaredMedianDistance(points, planePoint, planeNormal):
 
 class Octree(object):
 
-    def __init__(self, points, nBoxes=5000, neighborThreshold=1/16, debug=False, neighborMethod='arbitrary'):
+    def __init__(self, points, nBoxes=5000, neighborThreshold=1/16, neighborMethod='arbitrary', debug=False):
         """
 
         """

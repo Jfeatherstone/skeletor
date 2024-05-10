@@ -40,6 +40,8 @@ def pointsToImage(points, imageSize, kernelSize=1, minPointsPerPixel=1, padding=
 
     img : numpy.ndarray[H,W] or numpy.ndarray[H,W,L]
     """
+    # TODO: Change from an integer kernel to a float one.
+
     nDim = np.shape(points)[-1]
 
     # Make sure the image has the correct number of dimensions
@@ -79,6 +81,7 @@ def pointsToImage(points, imageSize, kernelSize=1, minPointsPerPixel=1, padding=
     fullImage[fullImage > 0] = 1
 
     return fullImage
+
 
 def imageToPoints(image, threshold=0):
     """
