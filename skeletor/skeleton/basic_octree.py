@@ -85,8 +85,8 @@ class Box(Node):
         if len(self.points) > 0:
             # Compute dominant directions
             # TODO: Find a better way to adaptively choose these parameters
-            hist, thetaBins, phiBins = angularHistogramAroundPoint(self.points, smoothing=35)
-            peakDirections = np.array(findDominantHistogramDirections(hist, thetaBins, phiBins, normalizeMoments=False, prevalence=.03))
+            hist, axes = angularHistogramAroundPoint(self.points, np.mean(self.points, axis=0))
+            peakDirections = np.array(findDominantHistogramDirections(hist, axes))
 
             if len(peakDirections) > 0:
                 # Compute magnitudes and directions of moments
@@ -186,18 +186,21 @@ class Box(Node):
     def plot(self, ax=None, drawBounds=True, drawPoints=True, drawCentroid=True, drawMoments=False, drawFaceCenters=False, **kwargs):
         """
         """
+        if not 'c' in kwargs:
+            kwargs["c"] = 'tab:blue'
+
         if not ax:
             fig = plt.figure()
             ax = fig.add_subplot(projection='3d')
 
         if drawBounds:
-            fig = plotBox(self.getBoxCorner(), self.getBoxSize(), ax=ax, **kwargs)
+            fig = plotBox(self.getBoxCorner(), self.getBoxSize(), ax=ax, alpha=.3, **kwargs)
 
         if drawPoints:
-            plt.gca().scatter(*self.points.T, 'tab:blue', label=self.boxName, **kwargs)
+            plt.gca().scatter(*self.points.T, label=self.boxName, alpha=.05, **kwargs)
 
         if drawCentroid:
-            plt.gca().scatter(*self.getBoxCentroid().T, c='tab:red', s=100)
+            plt.gca().scatter(*self.getBoxCentroid().T, c='tab:red', s=20)
 
         if drawMoments and len(self.moments) > 0:
             momentScale = np.max(self.points, axis=0) - np.min(self.points, axis=0)/4
@@ -257,7 +260,7 @@ def _calculateSquaredMedianDistance(points, planePoint, planeNormal):
 # TODO: Make sure this works for a 2D point cloud
 class Octree():
 
-    def __init__(self, points, nBoxes=1000, debug=False, minPointsPerBox=4):
+    def __init__(self, points, nBoxes=1000, minPointsPerBox=1, debug=False):
         """
         """
         
@@ -360,7 +363,7 @@ class Octree():
         # Histogram of the number of neighbors
         if debug:
             # -1 to account for self counting
-            plt.hist([len(p)-1 for p in potentialNeighbors], bins=np.array([0, 1, 2, 3, 4, 5, 6])-.5)
+            plt.hist([len(p)-1 for p in potentialNeighbors], bins=np.arange(2*self.dim+1) - .5)
             plt.xlabel('Potential Neighbors')
             plt.title('Histogram of Potential Neighbors')
             plt.show()
@@ -500,12 +503,12 @@ class Octree():
         """
         if ax is None:
             fig = plt.figure()
-            ax = fig.add_subplot(projection='3d')
+            ax = fig.add_subplot(projection='3d' if self.dim == 3 else None)
 
         # Draw boxes
         if plotBoxes:
             for b in self.boxes:
-                b.plot(ax=ax, drawPoints=False, drawCentroid=False, c=str(colour.Color(pick_for=b)), alpha=.1)
+                b.plot(ax=ax, drawPoints=False, drawCentroid=False, c=str(colour.Color(pick_for=b)))
        
         points, adjMat = self.skeleton()
 
@@ -529,7 +532,7 @@ class Octree():
             ax = fig.add_subplot(projection='3d')
 
         for i in range(len(self.boxes)):
-            self.boxes[i].plot(ax=ax, c=str(colour.Color(pick_for=i)), alpha=.4, **plotBoxKwargs)
+            self.boxes[i].plot(ax=ax, c=str(colour.Color(pick_for=i)), **plotBoxKwargs)
 
         return plt.gcf()
 

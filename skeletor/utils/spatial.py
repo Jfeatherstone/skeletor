@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
 from scipy.signal import convolve
 
-from .peak_finding import findPeaks2D
+from pepe.topology import findPeaksMulti
 
 def partitionIntoBoxes(points, nBoxes, cubes=False, returnIndices=False):
     """
@@ -87,7 +87,7 @@ def partitionIntoBoxes(points, nBoxes, cubes=False, returnIndices=False):
     return boxSize, linearBoxIdentities
 
 
-def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, kernel='gaussian', kernelSize=5, subsample=None, returnSpacing=False, returnCorner=False):
+def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, fixedBounds=None, kernel='gaussian', kernelSize=5, subsample=None, returnSpacing=False, returnCorner=False):
     """
     Course grains a collection of values at arbitrary points,
     into a discrete field.
@@ -124,6 +124,11 @@ def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, k
         If `None`, will be chosen such that the largest-spanning axis
         has 100 lattice points, with other axes using the same spacing.
 
+    fixedBounds : numpy.ndarray[d] or None
+        The bounds of the field to define the discretized
+        grid over. If None, will be calculated based on the
+        extrema of the provided points.
+
     kernel : str or numpy.ndarray[A,A]
         The kernel to course-grain the field with. 'gaussian'
         option is implemented as default, but a custom matrix
@@ -138,13 +143,25 @@ def courseGrainField(points, values=None, defaultValue=0, latticeSpacing=None, k
 
     returnCorner : bool
     """
+    # TODO: Make sure this works for 1D data
+    dim = np.shape(points)[-1] if len(np.shape(points)) > 1 else 1
 
-    # Calculate the bounds of the volume enclosing all of the data
-    occupiedVolumeBounds = np.array(list(zip(np.min(points, axis=0), np.max(points, axis=0))))
-
+    if dim == 1:
+        points = np.array(points)[:,None]
+    
+    if not hasattr(fixedBounds, '__iter__'):
+        occupiedVolumeBounds = np.array(list(zip(np.min(points, axis=0), np.max(points, axis=0))))
+    else:
+        occupiedVolumeBounds = np.array(fixedBounds)
+    
     # Create a lattice with the selected scale for that cube
     if latticeSpacing is not None:
         spacing = latticeSpacing
+        # We also have to correct the occupied volume bounds if we were provided with
+        # a fixed set of bounds. Otherwise, we will end up with an extra bin at the
+        # end
+        if hasattr(fixedBounds, '__iter__'):
+            occupiedVolumeBounds[:,1] -= spacing
     else:
         # Choose such that the largest spanning axis has 100 points
         spacing = (occupiedVolumeBounds[:,1] - occupiedVolumeBounds[:,0]) / 100
@@ -352,163 +369,169 @@ def calculateAdjacencyMatrix(points, neighborDistance):
     return adjMat
 
 
-def angularHistogramAroundPoint(points, index=None, adjMat=None, smoothing=21, histBins=50):
+def angularHistogramAroundPoint(points, center, adjArr=None, neighborDistance=None, smoothing=5, histBins=50):
     """
     Compute an angular histogram (axes are theta and phi angles) of directions to neighbors
     from the given point.
-
+    
     Parameters
     ----------
-    points : numpy.ndarray[N,3]
-        All points in the point cloud (not just those
-        that are neighbors). Neighbor points will be selected
-        using the provided adjacency matrix.
+    points : numpy.ndarray[N,d]
+        Points to be used in determining computing
+        the angular histogram, including the point for which
+        the histogram is computed around. The central point
+        is chosen using the `index` parameter.
+        
+        If not all points are to be used in creating the histogram,
+        whether a given point is to be used or not used can
+        be specified by the `adjMat` parameter.
+        
+    center : numpy.ndarray[d] or int
+        The point to use as the center in calculating the angular
+        histogram.
+        
+        If an integer, will be assumed to be the index of the point
+        to compute the histogram for in the array `points`.
+        
+    adjArr : numpy.ndarray[N] or None
+        The unweighted adjacency matrix row for the center point, ie.
+        adjMat[i,j] == 1 iff the two i and j are neighbors, and 
+        0 otherwise. Only points considered to be neighbors will
+        be used in calculating the histogram.
+        
+        If `None`, all points will be considered neighbors.
 
-    index : int or None
-        The index of the point to compute the histogram for.
+        There should be very little computational cost to passing
+        a larger array of points but then using a adjacency matrix
+        to select a subset of those points (essentially just a call
+        of `numpy.where`).
 
-        If None, the histogram will be computed around the median of
-        the provided points.
-
-    adjMat : numpy.ndarray[N,N] or None
-        The unweighted adjacency matrix for the points, ie.
-        adjMat[i,j] == 1 iff the two i and j are neighbors, and
-        0 otherwise.
-
-        If `None`, all points in `points` will be considered to be
-        in contact with the given point.
-
+    neighborDistance : float or None
+        The distance within which two points are considered to
+        be neighbors. Only relevant if adjMat is not provided,
+        and therefore needs to be calculated.
+        
     smoothing : int (odd) or None
-        Size of the gaussian smoothing kernel to use on the histogram.
-
+        Size of the gaussian smoothing kernel to use on the histogram. 
+        
     histBins : int
-        Number of bins to use in generating the histogram.
-
+        Number of bins to use for each axis in generating the histogram.
+        
     Returns
     -------
     hist : numpy.ndarray[N,N]
         2D histogram data, with each axis representing a spherical angle.
-
+        
     thetaBins : numpy.ndarray[N]
         Values of theta angle for histogram axis.
-
+    
     phiBins : numpy.ndarray[N]
         Values of phi angle for histogram axis.
 
     """
-    # TODO: Make this work in arbitrary dimension
-    if not hasattr(adjMat, '__iter__'):
-        # Ones matrix (minus diagonals) such that every points except
-        # the point itself is considered a neighbor.
-        adjMat = np.ones((len(points), len(points))) - np.eye(len(points))
+    dim = np.shape(points)[-1]
 
-    if index is None:
-        centralPoint = np.median(points, axis=0)
-        centralAdj = np.ones(len(points))
+    if not hasattr(center, '__iter__'):
+        centerPoint = points[center]
     else:
-        centralPoint = points[index]
-        centralAdj = adjMat[index]
+        centerPoint = center
 
+    # Calculate the adjacency matrix if given a neighbor distance
+    if not hasattr(adjArr, '__iter__') and neighborDistance is not None:
+        kdTree = KDTree(points)
+        indices = kdTree.query_ball_point(centerPoint, r=neighborDistance)
+        confirmedAdjArr = np.zeros(len(points))
+        confirmedAdjArr[indices] = 1
+        
+    elif hasattr(adjArr, '__iter__'):
+        confirmedAdjArr = adjArr
+        
+    else:
+        confirmedAdjArr = np.ones(len(points))
+
+    # If we have an adjacency array (either directly passed or
+    # calculated) choosen a subset of the points as neighbors
+    neighbors = np.where(confirmedAdjArr > 0)
+    displacements = points[neighbors] - centerPoint
+    
     # Compute the average edge orientation for each node
-    neighbors = np.where(centralAdj > 0)
     # Compute the direction of the displacement between each point
-    displacements = centralPoint - points[neighbors]
 
-    # Compute slopes of displacement lines
-    # z = y m_y + x m_x + b
-    myArr = displacements[:,2] / (displacements[:,1] + 1e-8)
-    mxArr = displacements[:,2] / (displacements[:,0] + 1e-8)
-    interceptArr = [centralPoint.dot([-mxArr[j], -myArr[j], 1]) for j in range(len(displacements))]
+    # This is done by calculating the generalized spherical coordinates
+    # within which we care only about the angles
 
-    # Change the slopes into spherical coordinates
-    magnitudes = np.sqrt(np.sum(displacements**2, axis=-1))
-    theta = np.arccos(displacements[:,2]/(magnitudes + 1e-8))
-    phi = np.sign(displacements[:,1]) * np.arccos(displacements[:,0] / (np.sqrt(np.sum(displacements[:,:2]**2, axis=-1)) + 1e-8))
+    # Convert to spherical coordinates
+    sphericalCoords = cartesianToSpherical(displacements)
+    radii = sphericalCoords[:,0]
+    angleCoords = sphericalCoords[:,1:]
 
-    # Make sure there aren't any nan values
-    goodIndices = np.array(np.array(np.isnan(theta), dtype=int) + np.array(np.isnan(phi), dtype=int) == 0, dtype=bool)
-    thetaArr = theta[goodIndices]
-    phiArr = phi[goodIndices]
+    # For d dimensions, we will have d-1 angles
+    # d-2 of them will be bounded between [0, pi], and one
+    # will be bounded between [0, 2pi]
+    # Here, we will always put the unique one last.
+    angleBounds = np.array((([np.pi]*(dim-2)) if dim > 2 else []) + [2*np.pi])
+    angleBounds = np.array(list(zip(np.repeat(0, dim-1), angleBounds)))
 
-    # Now turn into a 2D histogram
-    # This is equivalent to course graining, and I already happen to have a
-    # method for that for arbitrary dimension, so yay :D
-    # Also note that I used to have variable bins for theta and phi just around
-    # this data, but that means that the amount of smoothing applied is dependent
-    # on the spread of the data, making choosing a single parameter value difficult.
-    # Instead, now I use the full range for all angles, which guarantees that
-    # a smoothing kernel of eg. 5 means the same thing for any set of points.
-    #hist, thetaBins, phiBins = np.histogram2d(thetaArr, phiArr, bins=histBins)
-
-    #if not smoothing is None and smoothing > 0:
-    #    # `smoothing` is the kernel size
-    #    singleAxis = np.arange(smoothing)
-    #    kernelGrid = np.meshgrid(singleAxis, singleAxis)
-    #    kernel = np.exp(-np.sum([(kernelGrid[i] - (smoothing-1)/2.)**2 for i in range(2)], axis=0) / (2*smoothing))
-#
-#        hist = convolve(hist, kernel, mode='same') / np.sum(kernel)
-
-    latticeSpacing = 
-    hist = courseGrainField()
-
-    return hist, thetaBins, phiBins
+    # Now generate the d-1 dimensional histogram
+    latticeSpacing = angleBounds[:,1]/histBins
+    hist = courseGrainField(angleCoords, latticeSpacing=latticeSpacing, fixedBounds=angleBounds, kernelSize=smoothing)
+    
+    angleAxes = np.array([angleBounds[:,1]*l for l in np.linspace(0, 1, histBins)]).T
+    
+    return hist, angleAxes
 
 
-def findDominantHistogramDirections(hist, thetaBins, phiBins, prevalence=.05, debug=False, normalizeHistogram=False, normalizeMoments=True):
-    """
-    Based on the angular histogram (see angularHistogramAroundPoint()),
-    compute the dominant directions (moments), or the directions pointing towards
+def findDominantHistogramDirections(hist, angleAxes, peakFindPrevalence=0.5, debug=False):
+    r"""
+    Based on the angular histogram (see `angularHistogramAroundPoint()`),
+    compute the dominant directions, or the directions pointing towards
     neighbors.
-
+    
     Parameters
     ----------
     hist : numpy.ndarray[N,N]
-        2D histogram data, with each axis representing a spherical angle.
-
-    thetaBins : numpy.ndarray[N]
-        Values of theta angle for histogram axis.
-
-    phiBins : numpy.ndarray[N]
-        Values of phi angle for histogram axis.
-
+        d-1 dimensional histogram data, with each axis representing
+        a spherical angle.
+        
+    angleAxes : list of numpy.ndarray[N]
+        Values of the spherical angles for histogram axes. The
+        unique axis (that has a range [0, 2pi]) should be last.
+   
     debug : bool
-        Whether to plot the peak finding data (True) or not (False).
-
+        Whether to plot the peak finding data (`True`) or not (`False`).
+        
     Returns
     -------
-    peakDirections : numpy.ndarray[P,3]
-        Unit vectors in the dominant directions.
+    peakDirections : numpy.ndarray[P,d]
+        Unit vectors in the dominant directions in cartesian
+        coordinates.
     """
     # Find peaks in the histogram
     # Peak prevalence is the range the peak spans; eg. a peak
     # that spans from the minimum to the maximum of the data has
     # a prevalence of 1
-    peaks, prevalences = findPeaks2D(hist, minPeakPrevalence=prevalence, normalizePrevalence=normalizeHistogram)
-
+    peaks, prevalences = findPeaksMulti(hist, minPeakPrevalence=peakFindPrevalence, periodic=True)
+    
     if len(peaks) == 0:
-        return []
+        return np.array([])
+    
+    # If we are peak finding in 1D, we need to add a dummy index
+    # such that we can index as [peak number, dimension]
+    if len(np.shape(peaks)) == 1:
+        peaks = peaks[:,None]
 
     # Convert from indices to angles
-    peakThetaArr = thetaBins[np.array(peaks)[:,0]]
-    peakPhiArr = phiBins[np.array(peaks)[:,1]]
+    peakAngles = np.zeros((len(peaks), len(angleAxes)))
+    for i in range(len(angleAxes)):
+        # Just in case we are in the last pixel and round up, we should mod the length
+        # of the axis
+        peakAngles[:,i] = angleAxes[i][np.round(peaks[:,i]).astype(np.int64) % len(angleAxes[i])]
 
-    # Convert from (theta, phi) to (x, y, z)
-    moments = np.array([[np.sin(peakThetaArr[i])*np.cos(peakPhiArr[i]),
-                       np.sin(peakThetaArr[i])*np.sin(peakPhiArr[i]),
-                       np.cos(peakThetaArr[i])] for i in range(len(peaks))])
-
-    # Normalize
-    if normalizeMoments:
-        moments = np.array([dir / np.sqrt(np.sum(dir**2)) for dir in moments])
-
-    if debug:
-        plt.pcolor(thetaBins, phiBins, hist)
-        plt.colorbar()
-        for i in range(len(peaks)):
-            plt.scatter(thetaBins[peaks[i][1]], phiBins[peaks[i][0]], c='red', s=50, alpha=.75)
-        plt.show()
-
-    return moments
+    # Convert from spherical to cartesian
+    # Use 1 as the radius since we want unit vectors
+    peakSphericalCoords = np.array([[1, *p] for p in peakAngles])    
+    
+    return sphericalToCartesian(peakSphericalCoords)
 
 
 # Directions for the faces of a cube
@@ -516,17 +539,14 @@ DISCRETE_DIR_VECTORS = np.array([[1,0,0], [-1,0,0],
                                  [0,1,0], [0,-1,0],
                                  [0,0,1], [0,0,-1]])
 
-CARTESIAN_BASIS = np.array([[1,0,0],
-                            [0,1,0],
-                            [0,0,1]])
 
-def discretizeDirectionVectors(dirVectors, basisVectors=CARTESIAN_BASIS):
+def discretizeDirectionVectors(dirVectors, basisVectors=None):
     """
-    Turn an arbitrary set of direction vectors (x,y,z)
-    into a 6 dim vector representing directions along 3
-    basis vectors, (x,y,z) by default.
+    Turn an arbitrary set of direction vectors in d-dimensions
+    (x,y,z...) into a 2*d dimensional vector representing the
+    contributions to (+x,-x,+y,-y,+z,-z,...)
 
-    We need 6 values since if we were to just project the vectors
+    We need 2*d values since if we were to just project the vectors
     along each basis vector, symmetric structures would not
     show up.
 
@@ -542,26 +562,39 @@ def discretizeDirectionVectors(dirVectors, basisVectors=CARTESIAN_BASIS):
 
     Parameters
     ----------
-    dirVectors : numpy.ndarray[N,3]
+    dirVectors : numpy.ndarray[N,d]
         Array of N direction vectors.
 
-    basisVectors : numpy.ndarray[3,3]
+    basisVectors : None or numpy.ndarray[d,d]
         The basis vectors to which the arbitrary vectors
         should be projected into.
 
+        If `None`, cartesian basis will be used.
+
     Returns
     -------
-    discreteDirVector : numpy.ndarray[6]
+    discreteDirVector : numpy.ndarray[2*d]
         Sum of all direction vectors dotted into
-        direction vectors towards 6 closest neighbors
-        (faces of a cube).
-    """
-    
-    # The basis vectors should be given as 3 vectors, so we should
-    # add in the negatives of the vectors as well.
-    allBasisVectors = np.concatenate([(b, -b) for b in basisVectors], axis=0)
+        direction vectors towards 2*d closest neighbors
+        (faces of a hypercube in d dimensions).
+    """ 
+    if len(dirVectors) == 0:
+        return []
 
-    discreteVector = np.zeros(6)
+    dim = np.shape(dirVectors)[-1]
+
+    if not hasattr(basisVectors, '__iter__') and basisVectors is None:
+        # Cartesian basis (rows of the identity)
+        basis = np.eye(dim)
+    else:
+        assert np.shape(basisVectors)[0] == np.shape(basisVectors)[1], f'Invalid basis provided (shape={np.shape(basisVectors)}); should have shape ({dim},{dim})'
+        basis = basisVectors
+
+    # The basis vectors should be given as d vectors, so we should
+    # add in the negatives of the vectors as well.
+    allBasisVectors = np.concatenate([(b, -b) for b in basis], axis=0)
+
+    discreteVector = np.zeros(2*dim)
 
     for i in range(len(dirVectors)):
         currentVec = np.dot(dirVectors[i], allBasisVectors.T).T
@@ -581,4 +614,107 @@ def rotationMatrix(theta, phi, psi):
                      [-np.cos(theta)*np.sin(psi), np.cos(phi)*np.cos(psi) + np.sin(phi)*np.sin(theta)*np.sin(psi), np.sin(phi)*np.cos(psi) - np.cos(psi)*np.sin(phi)*np.sin(theta)],
                      [np.sin(theta), -np.sin(phi)*np.cos(theta), np.cos(phi)*np.cos(theta)]])
 
+
+def cartesianToSpherical(points):
+    """
+    Convert a point from cartesian coordinates to
+    generalized spherical coordinates.
+
+    The input cartesian coordinates should follow the order:
+        (x, y, ...)
+
+    The output spherical coordinates will follow the order:
+        (r, t_1, t_2, t_3, ..., p)
+
+    where `r` is the radius, the angles `t_i` are bounded between
+    `[0, pi]`, and the angle p is bounded between `[0, 2pi]`.
+
+    Parameters
+    ----------
+    points : numpy.ndarray[d] or numpy.ndarray[N,d]
+        One or multiple sets of points in cartesian coordinates.
+
+    Returns
+    -------
+    cartesianPoints : numpy.ndarray[d] or numpy.ndarray[N,d]
+        Output always matches the shape of the input `points`.
+
+    """
+    nPoints = np.shape(points)[0] if len(np.shape(points)) > 1 else 1
+    dim = np.shape(points)[-1]
+
+    if nPoints == 1 and len(np.shape(points)) == 1:
+        arrPoints = np.array([points])
+    else:
+        arrPoints = np.array(points)
+
+    # See note about this roll in sphericalToCartesian function.
+    # It is to make sure the points can come in as (x,y,z...)
+    #if dim >= 3:
+    #    arrPoints = np.roll(arrPoints, 1, axis=-1)
+
+    sphericalPoints = np.zeros((nPoints, dim))
+    # See the page on n-spheres for these equations:
+    # https://en.wikipedia.org/wiki/N-sphere#Spherical_coordinates
+    # Radius
+    sphericalPoints[:,0] = np.sqrt(np.sum(arrPoints**2, axis=-1))
+    for i in range(1, dim-1):
+        sphericalPoints[:,i] = np.arctan2(np.sqrt(np.sum(arrPoints[:,i:]**2, axis=-1)), arrPoints[:,i-1])
+    # The unique angle
+    sphericalPoints[:,-1] = np.arctan2(arrPoints[:,-1], arrPoints[:,-2])
+
+    # Remove extra dimensions if you only have a single point
+    return sphericalPoints[0] if (nPoints == 1 and len(np.shape(points)) == 1) else sphericalPoints
+   
+
+def sphericalToCartesian(points):
+    """
+    Convert a point from generalized spherical coordinates to
+    cartesian coordinates.
+
+    The input spherical coordinates should follow the order:
+        (r, t_1, t_2, t_3, ..., p)
+
+    where `r` is the radius, the angles `t_i` are bounded between
+    `[0, pi]`, and the angle p is bounded between `[0, 2pi]`.
+
+    This transformation is consistent in 2D with:
+        (r cos(p), r sin(p))
+    and in 3D with:
+        (r sin(t) cos(p), r sin(t) sin(p), r cos(t))
+        
+    Parameters
+    ----------
+    points : numpy.ndarray[d] or numpy.ndarray[N,d]
+        One or multiple sets of points in spherical coordinates.
+
+    Returns
+    -------
+    cartesianPoints : numpy.ndarray[d] or numpy.ndarray[N,d]
+        Output always matches the shape of the input `points`.
+    """
+    nPoints = np.shape(points)[0] if len(np.shape(points)) > 1 else 1
+    dim = np.shape(points)[-1]
+
+    if nPoints == 1 and len(np.shape(points)) == 1:
+        arrPoints = np.array([points])
+    else:
+        arrPoints = np.array(points)
+
+    cartesianPoints = np.zeros((nPoints, dim))
+    for i in range(dim-1):
+        cartesianPoints[:,i] = arrPoints[:,0] * np.product(np.sin(arrPoints[:,1:i+1]), axis=-1) * np.cos(arrPoints[:,i+1])
+    # The last one is different
+    cartesianPoints[:,-1] = arrPoints[:,0] * np.product(np.sin(arrPoints[:,1:]), axis=-1)
+
+    # For some reason, the calculation above shifts the order of
+    # the cartesian components by one IF the dimension is greater than 3...
+    # I really don't know why, but adding this line (and a complementary one
+    # in sphericalToCartesian) makes sure that we always have the order
+    # (x,y,z...)
+    #if dim >= 3:
+    #    cartesianPoints = np.roll(cartesianPoints, -1, axis=-1)
+    
+    # Remove extra dimensions if you only have a single point
+    return cartesianPoints[0] if (nPoints == 1 and len(np.shape(points)) == 1) else cartesianPoints
 
