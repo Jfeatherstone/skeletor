@@ -78,6 +78,8 @@ def skeletonize_medialThinning(points, imageMaxDim=100, kernelSize=1, minPointsP
         Adjacency matrix with `1` values representing
         connections, and `0` otherwise.
     """
+    dim = np.shape(points)[-1]
+
     # Compute the aspect ratio of our point cloud
     dimExtents = np.max(points, axis=0) - np.min(points, axis=0)
 
@@ -117,23 +119,33 @@ def skeletonize_medialThinning(points, imageMaxDim=100, kernelSize=1, minPointsP
     # defined scale of the pixel indices to do that
     skelPoints = (skelPoints / imageSize) * dimExtents + np.min(points, axis=0)
    
-    adjMat[tuple(properIndices[0]), tuple(properIndices[1])] = 1
+    # Populate the adjacency matrix (if we have any neighbors)
+    if len(properIndices) > 0:
+        adjMat[tuple(properIndices[0]), tuple(properIndices[1])] = 1
 
     if debug:
         fig = plt.figure(figsize=(15,5))
-        ax = fig.add_subplot(1, 4, 1, projection='3d')
+        ax = fig.add_subplot(1, 4, 1, projection='3d' if dim == 3 else None)
         ax.scatter(*points.T)
         ax.set_title('Point Cloud')
 
-        ax = fig.add_subplot(1, 4, 2, projection='3d')
-        ax.voxels(image, alpha=.8)
-        ax.set_title('3D Image')
+        ax = fig.add_subplot(1, 4, 2, projection='3d' if dim == 3 else None)
+        if dim == 3:
+            ax.voxels(image, alpha=.8)
+        elif dim == 2:
+            ax.imshow(image)
 
-        ax = fig.add_subplot(1, 4, 3, projection='3d')
-        ax.voxels(skeleton, alpha=.8)
+        ax.set_title('Input Image')
+
+        ax = fig.add_subplot(1, 4, 3, projection='3d' if dim == 3 else None)
+        if dim == 3:
+            ax.voxels(skeleton, alpha=.8)
+        elif dim == 2:
+            ax.imshow(skeleton)
+
         ax.set_title('Skeletonized Image')
 
-        ax = fig.add_subplot(1, 4, 4, projection='3d')
+        ax = fig.add_subplot(1, 4, 4, projection='3d' if dim == 3 else None)
         plotSpatialGraph(skelPoints, adjMat, ax)
         ax.set_title('Skeleton Graph')
 

@@ -257,7 +257,6 @@ def _calculateSquaredMedianDistance(points, planePoint, planeNormal):
 
 
 
-# TODO: Make sure this works for a 2D point cloud
 class Octree():
 
     def __init__(self, points, nBoxes=1000, minPointsPerBox=1, debug=False):
@@ -529,7 +528,7 @@ class Octree():
         """
         if ax is None:
             fig = plt.figure()
-            ax = fig.add_subplot(projection='3d')
+            ax = fig.add_subplot(projection='3d' if self.dim == 3 else None)
 
         for i in range(len(self.boxes)):
             self.boxes[i].plot(ax=ax, c=str(colour.Color(pick_for=i)), **plotBoxKwargs)

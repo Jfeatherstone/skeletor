@@ -5,6 +5,7 @@
 #from .ask import *
 from .medial_thinning import *
 from .basic_octree import *
+from .adaptive_octree import *
 
 #from .skeltre_testing import *
 

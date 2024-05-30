@@ -10,8 +10,9 @@ TEST_DATASET_DIR = str(pathlib.Path(__file__).parent.resolve())
 
 # Dataset names and brief descriptions
 TEST_DATASETS_2D = {
-                    '2d_curve_1':'Two dimensional high frequnecy periodic-looking wave drawn with a mouse.',
+                    '2d_curve_1':'Two dimensional medium frequnecy periodic-looking wave drawn with a mouse.',
                     '2d_curve_2':'Two dimensional low frequency periodic-looking wave drawn with a mouse.',
+                    '2d_curve_3':'Two dimensional high frequency periodic-looking wave drawn with a mouse.',
                    }
 
 TEST_DATASETS_3D = {
