@@ -2,9 +2,28 @@ import numpy as np
 
 from anytree import Node
 
+
 def detectConnectedStructures(adjMat):
     """
+    Detect connected structures in a graph via brute
+    force crawling along edges.
 
+    Parameters
+    ----------
+    adjMat : numpy.array[M,M]
+        The unweighted adjacency matrix for the graph, where a
+        value of 1 (or anything greater than 0) at index (i,j)
+        means that the nodes i and j are connected by an edge.
+
+    Returns
+    -------
+    structureIdentity : numpy.ndarray[M]
+        The identity of the structure to which each node belongs to.
+        eg. The number of connected structure is the number of
+        unique values in this array.
+
+        Labeling of the structures is arbitrary, based on the
+        ordering of the adjacency matrix.
     """
 
     structureIdentity = np.zeros(len(adjMat), dtype=np.int64) - 1
@@ -16,7 +35,7 @@ def detectConnectedStructures(adjMat):
             continue
 
         numStructures += 1
-        structureIdentity[i] = numStructures 
+        structureIdentity[i] = numStructures
         # Add the initial points
         pointsToCheck = list(np.where(adjMat[i] > 0)[0])
 
@@ -28,24 +47,24 @@ def detectConnectedStructures(adjMat):
 
             pointsToCheck = pointsToCheck[1:] + potentialPoints
 
-
     return structureIdentity
+
 
 def identifyCycles(adjMat, N):
     """
     Identify cycles of (exactly) length N in the graph
     described by an adjacency matrix.
-    
+
     Parameters
     ----------
     adjMat : numpy.ndarray[M,M]
         Adjacency matrix for M points, where
         a value adjMat[i,j] > 0 signifies points
         i and j have an edge between them.
-        
+
     N : int
         The length of cycles to find.
-        
+
     Returns
     -------
     cycles : numpy.ndarray[k,N]
@@ -54,39 +73,39 @@ def identifyCycles(adjMat, N):
     """
 
     if N <= 2:
-        raise Exception(f'Invalid cycle number ({N} <= 2) provided!')    
+        raise Exception(f'Invalid cycle number ({N} <= 2) provided!')
 
     cycles = []
-        
+
     for i in range(len(adjMat)):
         nodes = [[Node(i)]]
 
         neighbors = [ind for ind in np.where(adjMat[i] > 0)[0] if ind != i]
-        
-        nodes += [[Node(ind, parent=nodes[0][0]) for ind in neighbors]]
-        
-        for level in range(1,N):
-            newNodes = []
-            #print(level, nodes[level])
-            
-            for j in range(len(nodes[level])):
-                #print([ind for ind in np.where(adjMat[nodes[level][j].name] > 0)[0]])
-                #print([n.name for n in nodes[-1][j].ancestors[-N+2:]])
 
-                neighbors = [ind for ind in np.where(adjMat[nodes[-1][j].name] > 0)[0] if not ind in [n.name for n in nodes[-1][j].ancestors[-N+2:]]]
+        nodes += [[Node(ind, parent=nodes[0][0]) for ind in neighbors]]
+
+        for level in range(1, N):
+            newNodes = []
+            # print(level, nodes[level])
+
+            for j in range(len(nodes[level])):
+                # print([ind for ind in np.where(adjMat[nodes[level][j].name] > 0)[0]])
+                # print([n.name for n in nodes[-1][j].ancestors[-N+2:]])
+
+                neighbors = [ind for ind in np.where(adjMat[nodes[-1][j].name] > 0)[0] if ind not in [n.name for n in nodes[-1][j].ancestors[-N+2:]]]
                 newNodes += [Node(ind, parent=nodes[level][j]) for ind in neighbors if nodes[level][j].name != i]
 
             if len(newNodes) > 0:
                 nodes += [newNodes]
             else:
                 break
-           
-        #print(nodes)
+
+        # print(nodes)
         currentNodeCycles = [n for levels in nodes for n in levels if n.name == i and n != nodes[0][0]]
-        
+
         # Convert to list of indices
         currentNodeCycles = [[an.name for an in n.ancestors] for n in currentNodeCycles]
-        
+
         cycles += currentNodeCycles
         
     # Find unique entries
@@ -99,6 +118,8 @@ def identifyCycles(adjMat, N):
     # function of the indices, which should uniquely identify each unordered set of
     # indices.
     # The choice of nonlinear function doesn't really matter
+    # In theory, this could lead to some problems if you have a very specific
+    # indices involved in a cycle, but... it is what it is...
     cycleIdentities = [np.sum((np.array(c) + 2)**8) for c in cycles]
     uniqueCycleIdentities = np.unique(cycleIdentities)
     uniqueCycleIndices = [np.where(cycleIdentities == uci)[0][0] for uci in uniqueCycleIdentities]
@@ -109,14 +130,21 @@ def identifyCycles(adjMat, N):
 def computeCyclePathLength(points, cycles):
     """
 
+    Compute the total length of a cycle for a spatially
+    embedded graph.
+
     Parameters
     ----------
     points : numpy.ndarray[M,d]
         M vertices of a graph in d dimensions.
 
     cycles : numpy.ndarray[k,N]
-        Array of indices for k cycles
-        of length N.
+        Array of indices for k cycles of length N.
+
+    Returns
+    -------
+    distances : numpy.ndarray[k]
+        Total distance covered by each cycle.
     """
 
     distances = np.zeros(len(cycles))
@@ -128,5 +156,3 @@ def computeCyclePathLength(points, cycles):
         distances[i] = np.sum(np.sqrt(np.sum(edges**2)))
 
     return distances
-
-

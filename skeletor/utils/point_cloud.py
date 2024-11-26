@@ -1,7 +1,12 @@
 import numpy as np
 
+
 def pointsToImage(points, imageSize, kernelSize=1, minPointsPerPixel=1, padding=0):
     r"""
+    NOTE: This function is now deprecated, and should be replaced with
+    `skeletor.spatial.courseGrainField()`.
+
+
     Convert a set of points [N,d] into a
     binarized image [H,W[,L]] with a value of `1`
     if a point exists within a voxel, and `0` otherwise.
@@ -39,6 +44,7 @@ def pointsToImage(points, imageSize, kernelSize=1, minPointsPerPixel=1, padding=
     -------
 
     img : numpy.ndarray[H,W] or numpy.ndarray[H,W,L]
+        Image representation of the point cloud.
     """
     # TODO: Change from an integer kernel to a float one.
 
@@ -66,9 +72,9 @@ def pointsToImage(points, imageSize, kernelSize=1, minPointsPerPixel=1, padding=
 
     # The cardinal directions for the kernel
     if nDim == 2:
-        directions = np.array([(i,j) for i in kernel for j in kernel])
+        directions = np.array([(i, j) for i in kernel for j in kernel])
     elif nDim == 3:
-        directions = np.array([(i,j,k) for i in kernel for j in kernel for k in kernel])
+        directions = np.array([(i, j, k) for i in kernel for j in kernel for k in kernel])
 
     for p in scaledPoints:
         for d in directions:
@@ -95,11 +101,12 @@ def imageToPoints(image, threshold=0):
         A 2D or 3D image.
 
     threshold : float
-        The threshold value for a pixel/voxel to be 
+        The threshold value for a pixel/voxel to be
         considered a point.
 
     Returns
     -------
     points : numpy.ndarray[N,d]
+        Point representation of the image.
     """
     return np.array(np.where(image > threshold)).T

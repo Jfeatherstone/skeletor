@@ -1,0 +1,4 @@
+``skeletor``
+============
+
+.. automodule:: skeletor
