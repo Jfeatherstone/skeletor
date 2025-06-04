@@ -407,6 +407,14 @@ class AdaptiveOctree(SkeletonBase):
 
         # Get rid of empty boxes (or boxes with too few points)
         self.boxes = [b for b in self.boxes if b.getNumPoints() > minPointsPerBox]
+
+        # Now we clean up the parent/children structure since each box
+        # has anytree.Node as a super class. If we don't do this, we
+        # won't be able to pickle this class since there will be so
+        # many recursive references.
+        for i in range(len(self.boxes)):
+            self.boxes[i].children = None
+            self.noxes[i].parent = None
         
         if self.debug:
             print(f'Partioned space into {len(self.boxes)} boxes, all of which contain points.')
