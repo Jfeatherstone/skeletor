@@ -413,8 +413,8 @@ class AdaptiveOctree(SkeletonBase):
         # won't be able to pickle this class since there will be so
         # many recursive references.
         for i in range(len(self.boxes)):
-            self.boxes[i].children = None
-            self.noxes[i].parent = None
+            self.boxes[i].children = []
+            self.boxes[i].parent = None
         
         if self.debug:
             print(f'Partioned space into {len(self.boxes)} boxes, all of which contain points.')
